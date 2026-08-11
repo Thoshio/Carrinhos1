@@ -5,6 +5,7 @@ volatile uint16_t captured_subida = 0;
 volatile bool esperando_descida = false; // Controla se estamos medindo subida ou descida
 volatile bool nova_leitura_pronta = false; // Avisa o main que há um dado novo
 volatile uint16_t delta = 0;
+int ultima_distancia;
 
 void trigger_init(void) {
     //trigger TPM2 Ch:0 PTE22
@@ -14,7 +15,7 @@ void trigger_init(void) {
 }
 
 void tpm1_isr(void *arg) {
-    TPM1->STATUS |= TPM_STATUS_CH0F_MASK; // zerra a flag que gerou a interrupção
+    TPM1->STATUS |= TPM_STATUS_CH0F_MASK; // zera a flag que gerou a interrupção
 
     captured = TPM1->CONTROLS[1].CnV; // coloca o valor atual do timer na variável "captured"
 
@@ -22,6 +23,7 @@ void tpm1_isr(void *arg) {
         captured_subida = captured;
         esperando_descida = true;
     } else {
+        //calcula ticks de duração do pulso do echo
         delta = captured-captured_subida;
         nova_leitura_pronta = true;
         esperando_descida = false;
@@ -52,11 +54,26 @@ void ultrassonic_init(void) {
 }
 
 void print_distance(void) {
+    // se houver delta valido, calcula tempo e, em seguida, a distância
     if (nova_leitura_pronta) {
             nova_leitura_pronta = false;
             float tempo_segundos = (float)delta * 128.0f / 48000000;
             float dist = tempo_segundos * VELOCIDADE_SOM / 2;
+            // mostra a distância que está enxergando
             printk("Objeto a: %f cm\n", (double)dist);
         }
         k_msleep(100);
+}
+
+int distance_cm() {
+    if (nova_leitura_pronta) {
+        // se houver delta valido, calcula tempo e, em seguida, a distância
+        nova_leitura_pronta = false;
+        float tempo_segundos = (float)delta * 128.0f / 48000000;
+        float dist = tempo_segundos * VELOCIDADE_SOM / 2;
+        
+        // retorna a distância calculada
+        ultima_distancia = (int)dist;
+    }
+    return ultima_distancia;
 }

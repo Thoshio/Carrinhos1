@@ -36,4 +36,6 @@ void ultrassonic_init(void);
 
 void print_distance(void);
 
+int distance_cm();
+
 #endif /* ULTRASSONIC_H_ */

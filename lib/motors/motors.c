@@ -35,6 +35,7 @@ void gpio_init(void){
 }
 
 void pwm_init(void){
+    //Iniciando TPM0 para a PWM dos motores 
     pwm_tpm_Init(TPM0, TPM_PLLFLL, TPM_MODULE_MOTORS, TPM_CLK, PS_4, EDGE_PWM);
     pwm_tpm_Ch_Init(TPM0, 1, TPM_PWM_H, GPIOA, 4);
     pwm_tpm_Ch_Init(TPM0, 2, TPM_PWM_H, GPIOA, 5);
@@ -43,15 +44,17 @@ void pwm_init(void){
     pwm_tpm_CnV(TPM0, 2, value_pwm(0));
 }
 
+
 uint16_t value_pwm(int duty) {
+    //função que define o valor em função do Duty Cycle que será passado para pwm_tpm_CnV 
     uint32_t calculo = (uint32_t)TPM_MODULE_MOTORS * duty;
     return (uint16_t)(calculo / 100);
 }
 
 void go(void){
-    printk("indo\n");
-    pwm_tpm_CnV(TPM0, 1, value_pwm(50));
-    pwm_tpm_CnV(TPM0, 2, value_pwm(50));
+    // ir para frente com 100% de força dos motores
+    pwm_tpm_CnV(TPM0, 1, value_pwm(100));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(100));
 
     gpio_pin_set(gpio_c, 7, 1);
     gpio_pin_set(gpio_c, 0, 0);
@@ -60,45 +63,49 @@ void go(void){
 }
 
 void back(void){
-    printk("voltando\n");
+    // ir para trás com 100% de força dos motores
+    pwm_tpm_CnV(TPM0, 1, value_pwm(100));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(100));
+
     gpio_pin_set(gpio_c, 7, 0);
     gpio_pin_set(gpio_c, 0, 1);
     gpio_pin_set(gpio_c, 3, 0);
     gpio_pin_set(gpio_c, 4, 1);
-
-    pwm_tpm_CnV(TPM0, 1, value_pwm(100));
-    pwm_tpm_CnV(TPM0, 2, value_pwm(100));
 }
 
 void left(void){
-    printk("direita\n");
-    gpio_pin_set(gpio_c, 7, 1);
-    gpio_pin_set(gpio_c, 0, 0);
-    gpio_pin_set(gpio_c, 3, 0);
-    gpio_pin_set(gpio_c, 4, 1);
-
+    // ir para esquerda com 100% de força dos motores
     pwm_tpm_CnV(TPM0, 1, value_pwm(100));
     pwm_tpm_CnV(TPM0, 2, value_pwm(100));
+
+    gpio_pin_set(gpio_c, 7, 0);
+    gpio_pin_set(gpio_c, 0, 1);
+    gpio_pin_set(gpio_c, 3, 1);
+    gpio_pin_set(gpio_c, 4, 0);
+
+    k_msleep(1200);
 }
 
 void right(void){
-    printk("direita\n");
+    // ir para direita com 100% de força dos motores
+    pwm_tpm_CnV(TPM0, 1, value_pwm(100));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(100));
+
     gpio_pin_set(gpio_c, 7, 1);
     gpio_pin_set(gpio_c, 0, 0);
     gpio_pin_set(gpio_c, 3, 0);
     gpio_pin_set(gpio_c, 4, 1);
 
-    pwm_tpm_CnV(TPM0, 1, value_pwm(100));
-    pwm_tpm_CnV(TPM0, 2, value_pwm(100));
+    k_msleep(1200);
 }
 
 void stop(void){
-    printk("parando\n");
-    gpio_pin_set(gpio_c, 7, 0);
-    gpio_pin_set(gpio_c, 0, 0);
-    gpio_pin_set(gpio_c, 3, 0);
-    gpio_pin_set(gpio_c, 4, 0);
-
+    // desligar motores
     pwm_tpm_CnV(TPM0, 1, value_pwm(0));
     pwm_tpm_CnV(TPM0, 2, value_pwm(0));
+
+    gpio_pin_set(gpio_c, 7, 1);
+    gpio_pin_set(gpio_c, 0, 1);
+    gpio_pin_set(gpio_c, 3, 1);
+    gpio_pin_set(gpio_c, 4, 1);
 }
