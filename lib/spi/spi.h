@@ -1,0 +1,58 @@
+/*
+ * spi.h
+ * Author: Evandro
+ * https://github.com/evandro-teixeira/frdm-kl25z-spi
+ * https://embarcados.com.br/biblioteca-spi-para-a-placa-frdm-kl25z/
+ */
+ 
+#ifndef SOURCES_SPI_H_
+#define SOURCES_SPI_H_
+ 
+#include "MKL25Z4.h"
+#include "stdbool.h"
+ 
+#define SPI_0	0
+#define SPI_1	1
+#define ALT_0	0
+#define ALT_1   1
+#define PRESCALE_0	1
+#define PRESCALE_1	2
+#define PRESCALE_2	3
+#define PRESCALE_3	4
+#define PRESCALE_4	5
+#define PRESCALE_5	6
+#define PRESCALE_6	7
+#define PRESCALE_7	8
+#define DIVISOR_0	2
+#define DIVISOR_1	4
+#define DIVISOR_2	8
+#define DIVISOR_3	16
+#define DIVISOR_4	32
+#define DIVISOR_5	64
+#define DIVISOR_6	128
+#define DIVISOR_7	256
+#define DIVISOR_8	512
+#define CS_AUT		1
+#define CS_MAN		0
+ 
+bool spi_init(	bool spi,	// SPI0 ou SPI1
+		bool alt,			// SPI0 - PTC ou PTA || SPI1 - PTE ou PTB
+		uint8_t pre, 		// Prescale
+		uint16_t div,		// Divisor
+		bool cs);			// Chip Selet Automatico / Manual
+ 
+bool spi_send(	bool spi,	// SPI0 ou SPI1
+		uint8_t data);		// dado a ser enviado
+ 
+uint8_t spi_read(bool spi); // SPI0 ou SPI1
+
+/*
+ * Troca full-duplex: envia um byte e devolve o byte recebido no mesmo clock.
+ * Necessario para dispositivos que respondem durante a escrita (ex: nRF24L01,
+ * que devolve o registrador STATUS em todo primeiro byte da transacao).
+ * spi_send() nao serve para isso: ela nunca le SPIx->D, entao o byte recebido
+ * e descartado e o flag SPRF fica preso.
+ */
+uint8_t spi_transfer(bool spi, uint8_t data);
+
+#endif /* SOURCES_SPI_H_ */
