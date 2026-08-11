@@ -22,6 +22,7 @@ int main(void)
         int distancia = distance_cm();
         
         // Verifica se há um obstáculo real na frente
+        // colocamos que a distância deve ser maior que 6cm, porque queria evitar erros de leitura do ultrassom 
         if (distancia > 6 && distancia < 20) {
             //printk("Obstáculo a %d cm! Desviando...\n", distancia);
             
