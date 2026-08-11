@@ -24,7 +24,7 @@
 
 
 
-void trigger_init(void); //trigger TPM2 Ch:0 PTBE22
+void trigger_init(void); //trigger TPM2 Ch:0 PTE22
 
 void tpm1_isr(void *arg); //interrupt routine
 

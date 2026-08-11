@@ -7,7 +7,7 @@ volatile bool nova_leitura_pronta = false; // Avisa o main que há um dado novo
 volatile uint16_t delta = 0;
 
 void trigger_init(void) {
-    //trigger TPM2 Ch:0 PTBE22
+    //trigger TPM2 Ch:0 PTE22
     pwm_tpm_Init(TPM2, TPM_PLLFLL, TPM_MODULE, TPM_CLK, PS_128, EDGE_PWM);
     pwm_tpm_Ch_Init(TPM2, 0, TPM_PWM_H, GPIOE, 22);
     pwm_tpm_CnV(TPM2, 0, DUTY_CYCLE);
@@ -16,7 +16,7 @@ void trigger_init(void) {
 void tpm1_isr(void *arg) {
     TPM1->STATUS |= TPM_STATUS_CH0F_MASK; // zerra a flag que gerou a interrupção
 
-    captured = TPM1->CONTROLS[0].CnV; // coloca o valor atual do timer na variável "captured"
+    captured = TPM1->CONTROLS[1].CnV; // coloca o valor atual do timer na variável "captured"
 
     if (!esperando_descida) {
         captured_subida = captured;
@@ -47,6 +47,8 @@ void ultrassonic_init(void) {
     trigger_init();
     interrupt_init();
     tpm1_init();
+
+    printk("Ultrassônico configurado!\n");
 }
 
 void print_distance(void) {
