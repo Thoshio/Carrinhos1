@@ -19,14 +19,21 @@ void tpm1_isr(void *arg) {
 
     captured = TPM1->CONTROLS[1].CnV; // coloca o valor atual do timer na variável "captured"
 
-    if (!esperando_descida) {
+   // Se o bit 21 for 1, a energia está ALTA (borda de subida). Se for 0, está BAIXA.
+    bool pino_alto = (GPIOE->PDIR & (1 << 21)) != 0;
+
+    if (pino_alto) {
+        // É GARANTIDO que o pulso começou
         captured_subida = captured;
         esperando_descida = true;
-    } else {
-        //calcula ticks de duração do pulso do echo
-        delta = captured-captured_subida;
-        nova_leitura_pronta = true;
-        esperando_descida = false;
+    } 
+    else {
+        // É GARANTIDO que o pulso terminou
+        if (esperando_descida) { // Só calcula se realmente viu o início antes
+            delta = captured - captured_subida;
+            nova_leitura_pronta = true;
+            esperando_descida = false;
+        }
     }
 }
 
@@ -72,7 +79,7 @@ int distance_cm() {
         float tempo_segundos = (float)delta * 128.0f / 48000000;
         float dist = tempo_segundos * VELOCIDADE_SOM / 2;
         
-        // retorna a distância calculada
+        // retorna a distância calculada ou a última lida no caso da nova leitura ainda estar sendo gerada
         ultima_distancia = (int)dist;
     }
     return ultima_distancia;
