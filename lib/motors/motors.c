@@ -9,25 +9,28 @@ void motors_init(void){
 }
 
 void gpio_init(void){
-    //Busca o dispositivo usando a macro moderna do Devicetree
+    /*Essa função deve configurar os pinos de direção 
+    da ponte H (IN1, IN2, IN3, IN4)*/
+
+    // Busca o dispositivo usando a macro moderna do Devicetree
     gpio_c = DEVICE_DT_GET(DT_NODELABEL(gpioc));
 
-    //VERIFICA O DISPOSITIVO IMEDIATAMENTE (antes de tentar configurar)
+    // Verifica o dispositivo (antes de tentar configurar)
     if (gpio_c == NULL || !device_is_ready(gpio_c)) {
         printk("ERRO FATAL: Dispositivo GPIOC não encontrado ou não está pronto!\n");
     }
 
     printk("GPIOC encontrado com sucesso!\n");
 
-    //Agora é seguro configurar os pinos
-    if (gpio_pin_configure(gpio_c, 7, GPIO_OUTPUT_ACTIVE) < 0) {
+    // Agora é seguro configurar os pinos
+    if (gpio_pin_configure(gpio_c, 7, GPIO_OUTPUT_ACTIVE) < 0) { 
         printk("Erro ao configurar PTC7\n");
     }
     gpio_pin_configure(gpio_c, 0, GPIO_OUTPUT_ACTIVE);
     gpio_pin_configure(gpio_c, 3, GPIO_OUTPUT_ACTIVE);
     gpio_pin_configure(gpio_c, 4, GPIO_OUTPUT_ACTIVE);
 
-    //Define os estados iniciais
+    // Define os estados iniciais
     gpio_pin_set(gpio_c, 7, 0);
     gpio_pin_set(gpio_c, 0, 0);
     gpio_pin_set(gpio_c, 3, 0);
@@ -35,6 +38,9 @@ void gpio_init(void){
 }
 
 void pwm_init(void){
+    /*Essa função deve configurar os pinos de habilitação da ponte H 
+    para definir a velocidade dos motores (ENA, ENB)*/
+
     //Iniciando TPM0 para a PWM dos motores 
     pwm_tpm_Init(TPM0, TPM_PLLFLL, TPM_MODULE_MOTORS, TPM_CLK, PS_4, EDGE_PWM);
     pwm_tpm_Ch_Init(TPM0, 1, TPM_PWM_H, GPIOA, 4);
@@ -46,13 +52,13 @@ void pwm_init(void){
 
 
 uint16_t value_pwm(int duty) {
-    //função que define o valor em função do Duty Cycle que será passado para pwm_tpm_CnV 
+    // Função que define o valor em função do Duty Cycle que será passado para pwm_tpm_CnV 
     uint32_t calculo = (uint32_t)TPM_MODULE_MOTORS * duty;
     return (uint16_t)(calculo / 100);
 }
 
 void go(void){
-    // ir para frente com 100% de força dos motores
+    // Ir para frente com 100% de força dos motores
     pwm_tpm_CnV(TPM0, 1, value_pwm(100));
     pwm_tpm_CnV(TPM0, 2, value_pwm(100));
 
@@ -63,7 +69,7 @@ void go(void){
 }
 
 void back(void){
-    // ir para trás com 100% de força dos motores
+    // Ir para trás com 100% de força dos motores
     pwm_tpm_CnV(TPM0, 1, value_pwm(100));
     pwm_tpm_CnV(TPM0, 2, value_pwm(100));
 
@@ -74,7 +80,7 @@ void back(void){
 }
 
 void left(void){
-    // ir para esquerda com 100% de força dos motores
+    // Ir para esquerda com 100% de força dos motores
     pwm_tpm_CnV(TPM0, 1, value_pwm(100));
     pwm_tpm_CnV(TPM0, 2, value_pwm(100));
 
@@ -87,7 +93,7 @@ void left(void){
 }
 
 void right(void){
-    // ir para direita com 100% de força dos motores
+    // Ir para direita com 100% de força dos motores
     pwm_tpm_CnV(TPM0, 1, value_pwm(100));
     pwm_tpm_CnV(TPM0, 2, value_pwm(100));
 
@@ -100,7 +106,7 @@ void right(void){
 }
 
 void stop(void){
-    // desligar motores
+    // Desligar motores
     pwm_tpm_CnV(TPM0, 1, value_pwm(0));
     pwm_tpm_CnV(TPM0, 2, value_pwm(0));
 

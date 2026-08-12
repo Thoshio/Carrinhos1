@@ -12,17 +12,17 @@ int main(void)
     //Tempo para a eletrônica estabilizar
     k_msleep(500);
 
-    //O carrinho já começa andando em frente
-    printk("Acelerando...\n");
+    // Carrinho já começa andando em frente
+    //printk("Acelerando...\n");
     go(); 
 
-    //Loop contínuo
+    // Lógica de desvio em loop infinito
     for(;;) {
         // Lê o sensor ultrassônico
         int distancia = distance_cm();
         
         // Verifica se há um obstáculo real na frente
-        // colocamos que a distância deve ser maior que 6cm, porque queria evitar erros de leitura do ultrassom 
+        // Colocamos que a distância deve ser maior que 6cm, porque queria evitar erros de leitura do ultrassom 
         if (distancia > 6 && distancia < 20) {
             //printk("Obstáculo a %d cm! Desviando...\n", distancia);
             
