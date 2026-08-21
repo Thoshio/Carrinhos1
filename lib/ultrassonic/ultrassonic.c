@@ -8,9 +8,9 @@ volatile uint16_t delta = 0;
 int ultima_distancia;
 
 void trigger_init(void) {
-    // trigger TPM2 Ch:0 PTE22
+    // trigger TPM2 Ch:0 PTB2
     pwm_tpm_Init(TPM2, TPM_PLLFLL, TPM_MODULE, TPM_CLK, PS_128, EDGE_PWM);
-    pwm_tpm_Ch_Init(TPM2, 0, TPM_PWM_H, GPIOE, 22);
+    pwm_tpm_Ch_Init(TPM2, 0, TPM_PWM_H, GPIOB, 2);
     pwm_tpm_CnV(TPM2, 0, DUTY_CYCLE);
 }
 
@@ -45,11 +45,11 @@ void interrupt_init(void) {
 }
 
 void tpm1_init(void) {
-    // echo TPM1 Ch:1 PTE21
+    // echo TPM1 Ch:1 PTB1
     // Inicializa TPM1 com módulo e prescaler desejado
     pwm_tpm_Init(TPM1, TPM_PLLFLL, 65535, TPM_CLK, PS_128, EDGE_PWM);
-    // Configura TPM1_CH0 como input capture na borda de subida e descida em PTB0
-    pwm_tpm_Ch_Init(TPM1, 1, TPM_INPUT_CAPTURE_BOTH|TPM_CHANNEL_INTERRUPT, GPIOE, 21);
+    // Configura TPM1_CH1 como input capture na borda de subida e descida em PTB1
+    pwm_tpm_Ch_Init(TPM1, 1, TPM_INPUT_CAPTURE_BOTH|TPM_CHANNEL_INTERRUPT, GPIOB, 1);
 }
 
 void ultrassonic_init(void) {

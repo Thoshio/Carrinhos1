@@ -24,13 +24,13 @@
 
 
 
-void trigger_init(void); // trigger TPM2 Ch:0 PTE22
+void trigger_init(void); // trigger TPM2 Ch:0 PTB2
 
 void tpm1_isr(void *arg); // interrupt routine
 
 void interrupt_init(void);
 
-void tpm1_init(void); // echo TPM1 Ch:1 PTE21
+void tpm1_init(void); // echo TPM1 Ch:1 PTB1
 
 void ultrassonic_init(void);
 

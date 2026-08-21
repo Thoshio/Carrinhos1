@@ -4,6 +4,7 @@
 # Pasta principal do PlatformIO com builds, toolchains e dependências.
 # Esta é a pasta mais importante a ser ignorada.
 .pio/
+shield/
 
 # Arquivos de build do C/C++
 *.o
