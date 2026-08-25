@@ -14,11 +14,12 @@
  *
  *   2) CE   - pino dedicado que liga/desliga o RADIO em si, independente do
  *             SPI. E o CE que diz "comece a ouvir" (em RX) ou "transmita o que
- *             esta na FIFO agora" (em TX).
+ *             esta na FIFO agora" (em TX). Aqui e o PTA13.
  *
  *   3) IRQ  - saida do radio, ativa em BAIXO, que avisa que algum evento
  *             aconteceu. E o unico caminho que fala do radio PARA o KL25Z sem
- *             o mestre pedir. Opcional: ver nrf24_irq_init() no fim do arquivo.
+ *             o mestre pedir. Aqui e o PTA16. Opcional: ver nrf24_irq_init()
+ *             no fim do arquivo.
  *
  * Essa separacao e a fonte de quase toda confusao com esse chip: configurar
  * pelo SPI nao transmite nada; e o CE que dispara. E manter o CE alto em RX
@@ -66,7 +67,8 @@
  * chip aborta e interpreta o resto como um comando novo. E exatamente por isso
  * que o main.c inicializa o SPI com CS_MAN (chip select manual): o CS
  * automatico do KL25Z sobe entre cada byte e quebraria toda transacao de mais
- * de um byte.
+ * de um byte. Por isso o CSN esta no PTD5 como GPIO comum, fora do bloco de
+ * pinos do SPI - ele e dirigido pelo software, transacao a transacao.
  *
  * Outro detalhe do chip: o primeiro byte que ele devolve em QUALQUER transacao
  * e sempre o registrador STATUS. E por isso que nrf24_status() e so um NOP -
@@ -158,22 +160,40 @@
 /* Qual periferico SPI do KL25Z esta ligado ao radio. */
 #define NRF_SPI            SPI_1
 
-/* CSN = PTE4, CE = PTE5 - os dois como GPIO comum, nao como funcao do SPI. */
-#define PIN_CSN            4
-#define PIN_CE             5
-
 /*
- * IRQ = PTA16, entrada com interrupcao.
+ * --- Pinos de controle ---
  *
- * Fica numa porta diferente do resto do radio por imposicao do hardware: no
- * KL25Z apenas PORTA e PORTD tem deteccao de borda por pino. PORTB, PORTC e
- * PORTE nao possuem vetor de interrupcao nenhum, entao o IRQ nao poderia ficar
- * junto do SPI no PORTE.
+ * Os tres sinais que NAO fazem parte do barramento SPI. Cada um esta numa
+ * porta diferente, entao todos vem acompanhados do seu PORTx, GPIOx e da
+ * mascara de clock - nao da para assumir uma porta so, como seria se
+ * estivessem todos no PORTE junto do SPI.
  *
- * Para trocar de pino basta mexer nestes quatro defines - contanto que o novo
- * pino continue em PORTA ou PORTD, e que NRF_IRQ_LINE acompanhe a porta
+ * Todos usam PORT_PCR_MUX(1), que no KL25Z e sempre "GPIO comum". Nenhum deles
+ * usa a funcao alternativa de SPI do pino: o chip select automatico do KL25Z
+ * sobe entre cada byte e quebraria as transacoes de varios bytes do nRF24
+ * (ver o comentario sobre CS_MAN no topo do arquivo), entao o CSN e dirigido
+ * na mao como um GPIO qualquer.
+ *
+ *   CSN = PTD5   saida, ativo em baixo - seleciona o radio no SPI
+ *   CE  = PTA13  saida - liga o radio (escuta em RX, dispara o envio em TX)
+ *   IRQ = PTA16  entrada - o radio avisa que chegou pacote
+ *
+ * O IRQ nao poderia ficar junto do SPI no PORTE de jeito nenhum: no KL25Z so
+ * PORTA e PORTD tem deteccao de borda por pino. PORTB, PORTC e PORTE nao
+ * possuem vetor de interrupcao nenhum. Se for trocar o pino do IRQ, mantenha-o
+ * em PORTA ou PORTD e faca NRF_IRQ_LINE acompanhar a porta escolhida
  * (PORTA_IRQn ou PORTD_IRQn).
  */
+#define NRF_CSN_PORT       PORTD
+#define NRF_CSN_GPIO       GPIOD
+#define NRF_CSN_SCGC_MASK  SIM_SCGC5_PORTD_MASK
+#define PIN_CSN            5
+
+#define NRF_CE_PORT        PORTA
+#define NRF_CE_GPIO        GPIOA
+#define NRF_CE_SCGC_MASK   SIM_SCGC5_PORTA_MASK
+#define PIN_CE             13
+
 #define NRF_IRQ_PORT       PORTA
 #define NRF_IRQ_GPIO       GPIOA
 #define NRF_IRQ_SCGC_MASK  SIM_SCGC5_PORTA_MASK
@@ -243,10 +263,10 @@ static volatile bool g_irq_rx = false;
  *
  * CSN e ativo em BAIXO: baixo = SPI selecionado.
  */
-static inline void csn_low(void)  { GPIOE->PCOR = (1u << PIN_CSN); }
-static inline void csn_high(void) { GPIOE->PSOR = (1u << PIN_CSN); }
-static inline void ce_low(void)   { GPIOE->PCOR = (1u << PIN_CE);  }
-static inline void ce_high(void)  { GPIOE->PSOR = (1u << PIN_CE);  }
+static inline void csn_low(void)  { NRF_CSN_GPIO->PCOR = (1u << PIN_CSN); }
+static inline void csn_high(void) { NRF_CSN_GPIO->PSOR = (1u << PIN_CSN); }
+static inline void ce_low(void)   { NRF_CE_GPIO->PCOR  = (1u << PIN_CE);  }
+static inline void ce_high(void)  { NRF_CE_GPIO->PSOR  = (1u << PIN_CE);  }
 
 /*
  * Escreve um byte em um registrador.
@@ -308,21 +328,29 @@ static void send_cmd(uint8_t cmd)
 /*
  * Configura CSN e CE como saidas digitais comuns.
  *
- * PORT_PCR_MUX(1) = funcao ALT1 do pino, que no KL25Z e sempre "GPIO".
- * (ALT2 no PTE4 seria SPI1_PCS0, o chip select automatico - que NAO queremos,
- *  ver o comentario sobre CS_MAN no topo do arquivo.)
+ * PORT_PCR_MUX(1) = funcao ALT1 do pino, que no KL25Z e sempre "GPIO". Nenhum
+ * dos dois usa a funcao SPI alternativa - o CSN precisa ficar baixo durante a
+ * transacao inteira, o que so da para garantir dirigindo o pino na mao.
  * PDDR = Port Data Direction Register: bit em 1 significa saida.
+ *
+ * Cada porta precisa do seu clock ligado em SCGC5 antes de qualquer escrita no
+ * PCR: sem o clock a escrita simplesmente nao tem efeito, e nao gera erro
+ * nenhum. Como CSN e CE estao em portas diferentes (PORTD e PORTA) e nenhuma
+ * das duas e a do SPI, este e o unico lugar que liga esses dois clocks - o do
+ * PORTE fica por conta do spi_init().
  *
  * Estado inicial seguro: CSN alto (SPI nao selecionado) e CE baixo (radio
  * parado, nem ouvindo nem transmitindo).
  */
 static void pins_init(void)
 {
-	/* CSN e CE como saida. O clock do PORTE ja e ligado pelo spi_init(). */
-	SIM->SCGC5 |= SIM_SCGC5_PORTE_MASK;
-	PORTE->PCR[PIN_CSN] = PORT_PCR_MUX(1);
-	PORTE->PCR[PIN_CE]  = PORT_PCR_MUX(1);
-	GPIOE->PDDR |= (1u << PIN_CSN) | (1u << PIN_CE);
+	SIM->SCGC5 |= NRF_CSN_SCGC_MASK | NRF_CE_SCGC_MASK;
+
+	NRF_CSN_PORT->PCR[PIN_CSN] = PORT_PCR_MUX(1);
+	NRF_CE_PORT->PCR[PIN_CE]   = PORT_PCR_MUX(1);
+
+	NRF_CSN_GPIO->PDDR |= (1u << PIN_CSN);
+	NRF_CE_GPIO->PDDR  |= (1u << PIN_CE);
 
 	csn_high();
 	ce_low();
@@ -397,7 +425,7 @@ void nrf24_diag(void)
 	/* Datasheet: 100ms de power-on reset antes de falar com o radio. */
 	k_msleep(100);
 
-	printk("\n--- diagnostico nRF24 (SCK=PTE2 MOSI=PTE1 MISO=PTE3 CSN=PTE4 CE=PTE5) ---\n");
+	printk("\n--- diagnostico nRF24 (SCK=PTE2 MOSI=PTE1 MISO=PTE3 CSN=PTD5 CE=PTA13 IRQ=PTA16) ---\n");
 	printk("STATUS bruto = 0x%02X\n", nrf24_status());
 
 	/*
@@ -427,7 +455,7 @@ void nrf24_diag(void)
 	/* Tudo 0: o MISO esta amarrado ao GND, ou o chip nunca foi selecionado. */
 	else if(lido_03 == 0x00 && lido_02 == 0x00)
 	{
-		printk("=> MISO preso em 0. PTE3 no GND, CSN nao chega ao modulo,\n");
+		printk("=> MISO preso em 0. PTE3 no GND, CSN (PTD5) nao chega ao modulo,\n");
 		printk("   ou o modulo nao esta alimentado.\n");
 	}
 	/* Respondeu, mas errado: contato intermitente ou clock com ruido. */

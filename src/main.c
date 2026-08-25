@@ -53,8 +53,8 @@
  *     SCK     ->     PTE2     (SPI1_SCK)
  *     MOSI    ->     PTE1     (SPI1_MOSI)
  *     MISO    ->     PTE3     (SPI1_MISO)
- *     CSN     ->     PTE4     (GPIO)
- *     CE      ->     PTE5     (GPIO)
+ *     CSN     ->     PTD5     (GPIO)
+ *     CE      ->     PTA13    (GPIO)
  *     IRQ     ->     PTA16    (GPIO com interrupcao, ativo em BAIXO)
  */
 
@@ -363,7 +363,9 @@ int main(void)
 	}
 
 	/*
-	 * SPI1 alternativa 0: PTE2 = SCK, PTE1 = MOSI, PTE3 = MISO.
+	 * SPI1 alternativa 0: PTE2 = SCK, PTE1 = MOSI, PTE3 = MISO. Sao os
+	 * unicos pinos do radio no PORTE - CSN, CE e IRQ ficam em PORTD e
+	 * PORTA e sao configurados pelo proprio driver, em nrf24_init().
 	 * CS manual porque uma transacao do nRF24 mantem CSN baixo por varios
 	 * bytes - o CS automatico do KL25Z sobe entre cada byte.
 	 *

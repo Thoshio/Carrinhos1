@@ -12,8 +12,8 @@
  *   SCK     ->   PTE2   (SPI1_SCK)
  *   MOSI    ->   PTE1   (SPI1_MOSI)
  *   MISO    ->   PTE3   (SPI1_MISO)
- *   CSN     ->   PTE4   (GPIO)
- *   CE      ->   PTE5   (GPIO)
+ *   CSN     ->   PTD5   (GPIO)
+ *   CE      ->   PTA13  (GPIO)
  *   IRQ     ->   PTA16  (GPIO com interrupcao, ativo em BAIXO)
  *
  * O KL25Z ja opera em 3.3V, entao nao precisa de level shifter.
@@ -36,8 +36,12 @@
  *
  * PTA16 foi escolhido porque no KL25Z SO as portas A e D tem hardware de
  * interrupcao por pino - PORTB, PORTC e PORTE nao geram interrupcao nenhuma.
- * Se precisar mudar o pino, mexa apenas nos tres #define no topo do nrf24.c
- * (NRF_IRQ_PORT / NRF_IRQ_GPIO / PIN_IRQ) e mantenha-se em PORTA ou PORTD.
+ * Se precisar mudar o pino, mexa apenas no bloco NRF_IRQ_* no topo do nrf24.c
+ * e mantenha-se em PORTA ou PORTD, ajustando NRF_IRQ_LINE junto.
+ *
+ * O mesmo bloco de #define cobre CSN e CE (NRF_CSN_* e NRF_CE_*), que tambem
+ * mudaram de porta: os tres sinais de controle ficam fora do PORTE, que agora
+ * carrega apenas o barramento SPI.
  *
  * O IRQ e OPCIONAL: sem chamar nrf24_irq_init() o driver continua funcionando
  * por polling com nrf24_available(), exatamente como antes.
