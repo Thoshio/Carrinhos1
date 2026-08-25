@@ -15,12 +15,12 @@ void trigger_init(void) {
 }
 
 void tpm1_isr(void *arg) {
-    TPM1->STATUS |= TPM_STATUS_CH0F_MASK; // Zera a flag que gerou a interrupção
+    TPM1->STATUS |= TPM_STATUS_CH1F_MASK; // Zera a flag que gerou a interrupção
 
     captured = TPM1->CONTROLS[1].CnV; // Coloca o valor atual do timer na variável "captured"
 
    // Se o bit 21 for 1, a energia está ALTA (borda de subida). Se for 0, está BAIXA.
-    bool pino_alto = (GPIOE->PDIR & (1 << 21)) != 0;
+    bool pino_alto = (GPIOB->PDIR & (1 << 1)) != 0;
 
     if (pino_alto) {
         // É GARANTIDO que o pulso começou
