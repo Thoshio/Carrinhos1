@@ -26,14 +26,22 @@
  *     |- led_init()      configura os 3 pinos do LED RGB
  *     |- spi_init()      liga o SPI1 nos pinos PTE1/2/3
  *     |- nrf24_diag()    testa a fiacao do radio e imprime o resultado
- *     |- nrf24_init()    configura o radio (canal, endereco, payload, papel)
+ *     |- nrf24_init()      configura o radio (canal, endereco, payload, papel)
+ *     |- nrf24_irq_init()  liga a interrupcao do pino IRQ (PTA16)
  *     `- laco infinito:
- *          |- le teclas do UART  -> monta comando -> nrf24_send()
- *          `- checa o radio      -> nrf24_read()  -> led_aplica()
+ *          |- le teclas do UART       -> monta comando -> nrf24_send()
+ *          `- se a ISR avisou (IRQ)   -> nrf24_read()  -> led_aplica()
  *
- * Tudo e polling, sem interrupcao e sem thread extra. Para um payload de 4
- * bytes acionado por tecla isso e mais que suficiente, e evita toda a
- * complexidade de sincronizar o acesso ao SPI entre contextos.
+ * RECEPCAO por interrupcao, o resto por polling.
+ *
+ * O radio baixa o pino IRQ quando um pacote entra na FIFO. A ISR (dentro de
+ * lib/nrf24) nao fala com o radio: ela so marca uma flag, e o laco principal
+ * ve essa flag em nrf24_irq_recebido() e ai sim faz as transacoes SPI. Manter
+ * todo o SPI num contexto so evita que uma leitura disparada por interrupcao
+ * caia no meio do nrf24_send(), que segura o barramento por dezenas de ms.
+ *
+ * O teclado continua sendo lido por polling: o UART do console nao vale a
+ * complexidade de uma segunda interrupcao para umas poucas teclas por segundo.
  *
  * ---------------------------------------------------------------------------
  * LIGACAO (identica nas duas placas)
@@ -47,7 +55,7 @@
  *     MISO    ->     PTE3     (SPI1_MISO)
  *     CSN     ->     PTE4     (GPIO)
  *     CE      ->     PTE5     (GPIO)
- *     IRQ     ->     nao usado
+ *     IRQ     ->     PTA16    (GPIO com interrupcao, ativo em BAIXO)
  */
 
 #include "MKL25Z4.h"
@@ -400,7 +408,14 @@ int main(void)
 		}
 	}
 
-	printk("Radio pronto. Canal %d, payload %d bytes.\n",
+	/*
+	 * Interrupcao do IRQ. Depois do nrf24_init() porque e ele que escreve o
+	 * CONFIG com as mascaras de TX_DS/MAX_RT - sem essa escrita o pino
+	 * tambem seria baixado no fim de cada envio.
+	 */
+	nrf24_irq_init();
+
+	printk("Radio pronto. Canal %d, payload %d bytes. IRQ em PTA16.\n",
 	       RF_CANAL, (int)sizeof(comando_t));
 	mostra_ajuda();
 
@@ -440,23 +455,34 @@ int main(void)
 		/*
 		 * --- Pacote recebido ---
 		 *
-		 * So faz sentido consultar o radio quando a placa esta escutando.
-		 * O && curto-circuita: em TX nem chega a gastar uma transacao SPI.
+		 * Nada de consultar a FIFO a cada volta: so entra aqui quando a ISR
+		 * do pino IRQ avisou que chegou alguma coisa. nrf24_irq_recebido()
+		 * ja limpa a flag, entao cada evento e tratado uma unica vez.
+		 *
+		 * O while() e essencial, nao e preciosismo. A interrupcao e por
+		 * BORDA e a FIFO do radio guarda ate 3 pacotes: se dois chegarem
+		 * colados, o pino desce uma vez so e ha uma unica borda para os
+		 * dois. Lendo apenas um, o outro ficaria preso na FIFO ate um
+		 * proximo pacote gerar borda nova - e FIFO cheia faz o radio parar
+		 * de aceitar recepcao. Drenar ate esvaziar resolve os dois casos.
 		 */
-		if(g_modo_local == NRF24_MODO_RX && nrf24_available())
+		if(nrf24_irq_recebido())
 		{
 			comando_t rx;
 
-			nrf24_read(&rx, sizeof(rx));
-			led_aplica(rx.comando, rx.estado);
-			printk("recebido '%c' acao %u (seq %u)\n",
-			       rx.comando, rx.estado, rx.seq);
+			while(nrf24_available())
+			{
+				nrf24_read(&rx, sizeof(rx));
+				led_aplica(rx.comando, rx.estado);
+				printk("recebido '%c' acao %u (seq %u)\n",
+				       rx.comando, rx.estado, rx.seq);
+			}
 		}
 
 		/*
-		 * Cede o processador entre as voltas. 5ms e curto o bastante para o
-		 * comando parecer instantaneo e longo o bastante para nao martelar o
-		 * SPI com leituras de FIFO desnecessarias.
+		 * Cede o processador entre as voltas. Quem manda no tempo de
+		 * resposta do radio agora e a interrupcao, nao este sleep - ele
+		 * governa apenas a leitura do teclado, onde 5ms passa despercebido.
 		 */
 		k_msleep(5);
 	}

@@ -14,13 +14,33 @@
  *   MISO    ->   PTE3   (SPI1_MISO)
  *   CSN     ->   PTE4   (GPIO)
  *   CE      ->   PTE5   (GPIO)
- *   IRQ     ->   (nao usado - o driver faz polling)
+ *   IRQ     ->   PTA16  (GPIO com interrupcao, ativo em BAIXO)
  *
  * O KL25Z ja opera em 3.3V, entao nao precisa de level shifter.
  * Capacitor de 10-100uF entre VCC e GND junto ao modulo: o pico de corrente
  * na transmissao causa brownout e e a causa mais comum de link instavel.
  *
  * OBS: a pinagem do modulo muda entre versoes. Confira o seu antes de ligar.
+ *
+ * ---------------------------------------------------------------------------
+ * SOBRE O PINO IRQ
+ * ---------------------------------------------------------------------------
+ *
+ * O IRQ e uma saida do radio, ativa em BAIXO, que avisa "aconteceu um evento"
+ * sem que o KL25Z precise ficar consultando o STATUS pelo SPI.
+ *
+ * Aqui ele so e usado para RECEPCAO: nrf24_irq_init() mascara os eventos de
+ * transmissao no proprio radio, entao a unica coisa capaz de baixar o pino e a
+ * chegada de um pacote (RX_DR). Os desfechos de envio (TX_DS / MAX_RT)
+ * continuam sendo lidos por polling dentro de nrf24_send(), que e bloqueante.
+ *
+ * PTA16 foi escolhido porque no KL25Z SO as portas A e D tem hardware de
+ * interrupcao por pino - PORTB, PORTC e PORTE nao geram interrupcao nenhuma.
+ * Se precisar mudar o pino, mexa apenas nos tres #define no topo do nrf24.c
+ * (NRF_IRQ_PORT / NRF_IRQ_GPIO / PIN_IRQ) e mantenha-se em PORTA ou PORTD.
+ *
+ * O IRQ e OPCIONAL: sem chamar nrf24_irq_init() o driver continua funcionando
+ * por polling com nrf24_available(), exatamente como antes.
  */
 
 #ifndef LIB_NRF24_NRF24_H_
@@ -63,6 +83,36 @@ bool nrf24_send(const void *data, uint8_t len);
 
 /* true se ha pacote na FIFO de recepcao. So faz sentido em NRF24_MODO_RX. */
 bool nrf24_available(void);
+
+/*
+ * Liga a interrupcao do pino IRQ. Chamar DEPOIS de nrf24_init().
+ *
+ * Configura PTA16 como entrada com pull-up e interrupcao na borda de DESCIDA,
+ * e mascara TX_DS e MAX_RT no radio para que so a chegada de pacote (RX_DR)
+ * baixe o pino.
+ *
+ * A rotina de interrupcao nao toca no SPI: ela apenas marca uma flag interna.
+ * Quem le o pacote continua sendo o laco principal, via nrf24_irq_recebido()
+ * seguido de nrf24_available() / nrf24_read().
+ */
+void nrf24_irq_init(void);
+
+/*
+ * Consome o aviso deixado pela interrupcao.
+ *
+ * Retorna true UMA vez por evento sinalizado e ja limpa a flag, entao pode ser
+ * chamada direto no if do laco principal.
+ *
+ * IMPORTANTE: a interrupcao e por borda, e a FIFO do radio guarda ate 3
+ * pacotes. Se dois chegarem coladinhos, ha uma unica borda de descida para os
+ * dois. Por isso o tratamento tem que ESVAZIAR a FIFO, e nao ler so um pacote:
+ *
+ *   if(nrf24_irq_recebido())
+ *   {
+ *       while(nrf24_available()) { nrf24_read(&pkt, sizeof(pkt)); ... }
+ *   }
+ */
+bool nrf24_irq_recebido(void);
 
 /* Copia um pacote recebido para buf. Chamar apos nrf24_available(). */
 void nrf24_read(void *buf, uint8_t len);

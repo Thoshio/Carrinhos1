@@ -16,6 +16,10 @@
  *             SPI. E o CE que diz "comece a ouvir" (em RX) ou "transmita o que
  *             esta na FIFO agora" (em TX).
  *
+ *   3) IRQ  - saida do radio, ativa em BAIXO, que avisa que algum evento
+ *             aconteceu. E o unico caminho que fala do radio PARA o KL25Z sem
+ *             o mestre pedir. Opcional: ver nrf24_irq_init() no fim do arquivo.
+ *
  * Essa separacao e a fonte de quase toda confusao com esse chip: configurar
  * pelo SPI nao transmite nada; e o CE que dispara. E manter o CE alto em RX
  * e o que mantem o receptor acordado.
@@ -67,12 +71,33 @@
  * Outro detalhe do chip: o primeiro byte que ele devolve em QUALQUER transacao
  * e sempre o registrador STATUS. E por isso que nrf24_status() e so um NOP -
  * manda um byte inofensivo e aproveita o STATUS que volta junto.
+ *
+ * ---------------------------------------------------------------------------
+ * O PINO IRQ E POR QUE A ISR NAO FALA COM O RADIO
+ * ---------------------------------------------------------------------------
+ *
+ * O IRQ e apenas o espelho das mesmas flags do STATUS: o radio baixa o pino
+ * quando RX_DR, TX_DS ou MAX_RT sobe, e o solta quando o software limpa a
+ * flag. Nao ha informacao nova nele - o que ele economiza e o polling.
+ *
+ * Este driver usa o IRQ SO para recepcao. Os bits MASK_TX_DS e MASK_MAX_RT do
+ * CONFIG ficam ligados (ver CONFIG_BASE), o que desconecta os eventos de envio
+ * do pino sem afetar em nada o registrador STATUS - e por isso que o polling
+ * dentro de nrf24_send() continua funcionando igual.
+ *
+ * A rotina de interrupcao nao emite NENHUMA transacao SPI: ela so marca uma
+ * flag. Isso e deliberado. nrf24_send() fica dezenas de ms com transacoes SPI
+ * em andamento, e uma leitura disparada por interrupcao no meio de uma delas
+ * intercalaria bytes no barramento e corromperia as duas transacoes. Deixando
+ * todo o SPI no contexto do laco principal, o problema simplesmente nao existe
+ * e nao e preciso mutex nem mascarar interrupcao em volta de cada transacao.
  */
 
 #include "nrf24.h"
 #include "spi.h"
 #include "MKL25Z4.h"
 #include <zephyr/kernel.h>
+#include <zephyr/irq.h>
 
 /* --- Comandos SPI ---
  * Sao os opcodes do primeiro byte de cada transacao.
@@ -114,7 +139,14 @@
 #define STATUS_TX_DS       (1 << 5)  /* Data Sent: pacote enviado E confirmado */
 #define STATUS_MAX_RT      (1 << 4)  /* estourou o numero de retransmissoes */
 
-/* --- Bits do CONFIG --- */
+/* --- Bits do CONFIG ---
+ * Os tres MASK_* desligam o evento correspondente do PINO IRQ. Eles NAO mexem
+ * no registrador STATUS: a flag continua subindo e continua legivel por
+ * polling. Mascarado = "nao me acorde por isso", nao "nao registre isso".
+ */
+#define CONFIG_MASK_RX_DR  (1 << 6)  /* nao baixa o IRQ quando chega pacote */
+#define CONFIG_MASK_TX_DS  (1 << 5)  /* nao baixa o IRQ quando o envio confirma */
+#define CONFIG_MASK_MAX_RT (1 << 4)  /* nao baixa o IRQ quando o envio desiste */
 #define CONFIG_EN_CRC      (1 << 3)  /* liga a verificacao de CRC */
 #define CONFIG_CRCO        (1 << 2)  /* CRC de 16 bits (sem este bit, 8) */
 #define CONFIG_PWR_UP      (1 << 1)  /* tira o radio do power-down */
@@ -131,11 +163,50 @@
 #define PIN_CE             5
 
 /*
- * CONFIG base: CRC de 16 bits, radio ligado.
+ * IRQ = PTA16, entrada com interrupcao.
+ *
+ * Fica numa porta diferente do resto do radio por imposicao do hardware: no
+ * KL25Z apenas PORTA e PORTD tem deteccao de borda por pino. PORTB, PORTC e
+ * PORTE nao possuem vetor de interrupcao nenhum, entao o IRQ nao poderia ficar
+ * junto do SPI no PORTE.
+ *
+ * Para trocar de pino basta mexer nestes quatro defines - contanto que o novo
+ * pino continue em PORTA ou PORTD, e que NRF_IRQ_LINE acompanhe a porta
+ * (PORTA_IRQn ou PORTD_IRQn).
+ */
+#define NRF_IRQ_PORT       PORTA
+#define NRF_IRQ_GPIO       GPIOA
+#define NRF_IRQ_SCGC_MASK  SIM_SCGC5_PORTA_MASK
+#define NRF_IRQ_LINE       PORTA_IRQn
+#define PIN_IRQ            16
+
+/* Prioridade da interrupcao do IRQ.
+ * O Cortex-M0+ tem so 4 niveis (0 = mais urgente). 2 deixa o radio abaixo do
+ * input capture do ultrassom, que e sensivel a atraso: perder alguns
+ * microssegundos aqui nao custa nada, porque o pacote ja esta guardado na
+ * FIFO do proprio radio esperando ser lido. */
+#define NRF_IRQ_PRIORITY   2
+
+/* IRQC do PCR: 0b1010 = interrupcao na borda de DESCIDA.
+ * Descida porque o IRQ do nRF24 e ativo em baixo - a transicao 1->0 e o
+ * instante em que o evento aconteceu. */
+#define PCR_IRQC_FALLING   0x0A
+
+/*
+ * CONFIG base: CRC de 16 bits, radio ligado, IRQ so para recepcao.
+ *
+ * TX_DS e MAX_RT mascarados: sem isso o pino IRQ tambem seria baixado no fim
+ * de cada nrf24_send(), e a ISR marcaria "chegou pacote" para um evento que na
+ * verdade foi de transmissao. RX_DR fica desmascarado (bit em 0), que e o
+ * unico evento que interessa acordar o processador.
+ *
+ * Os mascaramentos sao inofensivos para quem usa o driver por polling: o
+ * STATUS continua com as mesmas flags de sempre.
+ *
  * O bit PRIM_RX e adicionado (ou nao) em nrf24_set_modo(), que e o unico
  * lugar que decide entre TX e RX.
  */
-#define CONFIG_BASE        (CONFIG_EN_CRC | CONFIG_CRCO | CONFIG_PWR_UP)
+#define CONFIG_BASE        (CONFIG_MASK_TX_DS | CONFIG_MASK_MAX_RT |                             CONFIG_EN_CRC | CONFIG_CRCO | CONFIG_PWR_UP)
 
 /*
  * Estado do driver.
@@ -148,6 +219,20 @@
  */
 static uint8_t      g_payload_len = 32;
 static nrf24_modo_t g_modo        = NRF24_MODO_TX;
+
+/*
+ * Aviso deixado pela interrupcao do pino IRQ para o laco principal.
+ *
+ * 'volatile' e obrigatorio: quem escreve e a ISR, quem le e o codigo normal, e
+ * sem o qualificador o compilador teria todo o direito de manter o valor num
+ * registrador e nunca reler a memoria - o laco principal ficaria preso lendo
+ * um false eterno.
+ *
+ * Um bool basta: nao interessa QUANTAS bordas chegaram, so que ha algo para
+ * olhar. Quem conta os pacotes de verdade e a FIFO do radio, drenada com
+ * nrf24_available() ate esvaziar.
+ */
+static volatile bool g_irq_rx = false;
 
 /*
  * Manipulacao direta dos pinos via registradores do GPIO do KL25Z:
@@ -562,4 +647,96 @@ void nrf24_read(void *buf, uint8_t len)
 
 	/* Marca o evento como tratado (write-1-to-clear). */
 	write_reg(REG_STATUS, STATUS_RX_DR);
+}
+
+/*
+ * ============================================================================
+ * PINO IRQ
+ * ============================================================================
+ */
+
+/*
+ * Rotina de interrupcao do PORTA.
+ *
+ * O vetor e UM SO para a porta inteira, entao ele dispara por qualquer pino do
+ * PORTA configurado para interromper. Por isso a primeira coisa e conferir no
+ * ISFR (Interrupt Status Flag Register) se a borda foi mesmo do nosso pino: se
+ * outro periferico usar PORTA no futuro, os dois tratamentos convivem.
+ *
+ * A flag do ISFR e write-1-to-clear, igual as do STATUS do radio. Limpar antes
+ * de tratar (e nao depois) evita perder uma borda que chegue durante a propria
+ * ISR.
+ *
+ * Nao ha SPI aqui de proposito - ver o comentario no topo do arquivo.
+ */
+static void nrf24_irq_isr(const void *arg)
+{
+	ARG_UNUSED(arg);
+
+	if((NRF_IRQ_PORT->ISFR & (1u << PIN_IRQ)) == 0)
+	{
+		return;
+	}
+
+	/* Reconhece a borda no hardware. */
+	NRF_IRQ_PORT->ISFR = (1u << PIN_IRQ);
+
+	/* Avisa o laco principal. Ele que fara o SPI. */
+	g_irq_rx = true;
+}
+
+/*
+ * Configura o pino do IRQ e liga a interrupcao.
+ *
+ * Precisa vir DEPOIS de nrf24_init(), porque nrf24_init() reescreve o CONFIG
+ * (via nrf24_set_modo) e o radio so passa a respeitar as mascaras a partir
+ * dessa escrita.
+ *
+ * Pull-up ligado (PE + PS): o IRQ do nRF24 e ativo em baixo. Enquanto o modulo
+ * estiver desligado ou o fio solto, o pull-up segura a entrada em 1 e evita que
+ * ruido na linha gere bordas de descida fantasmas.
+ */
+void nrf24_irq_init(void)
+{
+	/* Sem o clock da porta, escrever no PCR nao tem efeito nenhum (e nao da
+	 * erro) - o mesmo cuidado do pins_init(). */
+	SIM->SCGC5 |= NRF_IRQ_SCGC_MASK;
+
+	/* GPIO, pull-up, interrupcao na borda de descida. */
+	NRF_IRQ_PORT->PCR[PIN_IRQ] = PORT_PCR_MUX(1)
+	                           | PORT_PCR_PE_MASK
+	                           | PORT_PCR_PS_MASK
+	                           | PORT_PCR_IRQC(PCR_IRQC_FALLING);
+
+	/* PDDR com o bit em 0 = entrada. */
+	NRF_IRQ_GPIO->PDDR &= ~(1u << PIN_IRQ);
+
+	/* Descarta qualquer borda acumulada durante a configuracao, para nao
+	 * comecar ja anunciando um pacote que nao existe. */
+	NRF_IRQ_PORT->ISFR = (1u << PIN_IRQ);
+	g_irq_rx = false;
+
+	IRQ_CONNECT(NRF_IRQ_LINE, NRF_IRQ_PRIORITY, nrf24_irq_isr, NULL, 0);
+	irq_enable(NRF_IRQ_LINE);
+}
+
+/*
+ * Consome o aviso da ISR.
+ *
+ * Le e limpa numa regiao critica curta: sem isso, uma borda que chegasse entre
+ * o teste e a limpeza seria apagada junto e o pacote correspondente ficaria
+ * parado na FIFO ate a proxima transmissao. irq_lock/irq_unlock sao baratos no
+ * Cortex-M0+ (um PRIMASK) e aqui protegem duas instrucoes.
+ */
+bool nrf24_irq_recebido(void)
+{
+	unsigned int chave;
+	bool         houve;
+
+	chave = irq_lock();
+	houve = g_irq_rx;
+	g_irq_rx = false;
+	irq_unlock(chave);
+
+	return houve;
 }

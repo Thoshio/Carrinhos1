@@ -5,3 +5,16 @@ status = "okay";
 &gpioc {
 status = "okay";
 };
+/*
+ * O IRQ do nRF24 esta em PTA16 e e tratado direto no registrador, com
+ * IRQ_CONNECT(PORTA_IRQn) dentro de lib/nrf24.
+ *
+ * Com o driver GPIO do Zephyr ativo para esta porta, ele registra o proprio
+ * tratador no mesmo vetor e o gen_isr_tables aborta o build com
+ * "multiple registrations at table_index 30". Desligar o no libera o vetor.
+ *
+ * Nada se perde: todo o acesso a PORTA neste projeto e por registrador.
+ */
+&gpioa {
+status = "disabled";
+};
