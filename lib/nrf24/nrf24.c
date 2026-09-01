@@ -1,14 +1,17 @@
 /*
  * nrf24.c
- * Driver nRF24L01+ para FRDM-KL25Z.
+ * Driver nRF24L01 (Versão Original) refatorado.
+ * Utilizando API nativa de GPIO do Zephyr para evitar conflito de IRQ.
  */
 
 #include "nrf24.h"
 #include "spi.h"
 #include "MKL25Z4.h"
 #include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h> // Incluído para gerenciar o pino IRQ pelo SO
 
-/* --- Comandos SPI --- */
+/* --- Comandos e Registradores SPI do NRF24 --- */
 #define CMD_R_REGISTER     0x00
 #define CMD_W_REGISTER     0x20
 #define CMD_R_RX_PAYLOAD   0x61
@@ -17,7 +20,6 @@
 #define CMD_FLUSH_RX       0xE2
 #define CMD_NOP            0xFF
 
-/* --- Registradores --- */
 #define REG_CONFIG         0x00
 #define REG_EN_AA          0x01
 #define REG_EN_RXADDR      0x02
@@ -30,312 +32,237 @@
 #define REG_TX_ADDR        0x10
 #define REG_RX_PW_P0       0x11
 #define REG_FIFO_STATUS    0x17
-#define REG_DYNPD          0x1C
-#define REG_FEATURE        0x1D
 
-/* --- Bits do STATUS --- */
 #define STATUS_RX_DR       (1 << 6)
 #define STATUS_TX_DS       (1 << 5)
 #define STATUS_MAX_RT      (1 << 4)
 
-/* --- Bits do CONFIG --- */
 #define CONFIG_EN_CRC      (1 << 3)
-#define CONFIG_CRCO        (1 << 2)   /* CRC de 16 bits */
+#define CONFIG_CRCO        (1 << 2)
 #define CONFIG_PWR_UP      (1 << 1)
 #define CONFIG_PRIM_RX     (1 << 0)
-
-/* --- Bits do FIFO_STATUS --- */
 #define FIFO_RX_EMPTY      (1 << 0)
 
+/* --- MAPEAMENTO DE PINOS --- */
 #define NRF_SPI            SPI_1
+#define PIN_CE             13 // PTA13
+#define PIN_CSN            5  // PTD5
+#define PIN_IRQ            16 // PTA16 (Porta A, Pino 16)
 
-/* CSN = PTE4, CE = PTE5 */
-#define PIN_CSN            4
-#define PIN_CE             5
-
-/* CONFIG base: CRC de 16 bits, radio ligado. */
 #define CONFIG_BASE        (CONFIG_EN_CRC | CONFIG_CRCO | CONFIG_PWR_UP)
 
 static uint8_t      g_payload_len = 32;
 static nrf24_modo_t g_modo        = NRF24_MODO_TX;
 
-static inline void csn_low(void)  { GPIOE->PCOR = (1u << PIN_CSN); }
-static inline void csn_high(void) { GPIOE->PSOR = (1u << PIN_CSN); }
-static inline void ce_low(void)   { GPIOE->PCOR = (1u << PIN_CE);  }
-static inline void ce_high(void)  { GPIOE->PSOR = (1u << PIN_CE);  }
+/* Semáforo binário usado para sincronizar a interrupção */
+K_SEM_DEFINE(nrf24_irq_sem, 0, 1);
 
-static void write_reg(uint8_t reg, uint8_t value)
+/* Estruturas do Zephyr para o Callback do GPIO */
+static const struct device *gpio_a_dev;
+static struct gpio_callback nrf24_irq_cb_data;
+
+/* Funções de baixo nível para manuseio dos pinos CE e CSN */
+static inline void csn_low(void)  { GPIOD->PCOR = (1u << PIN_CSN); }
+static inline void csn_high(void) { GPIOD->PSOR = (1u << PIN_CSN); }
+static inline void ce_low(void)   { GPIOA->PCOR = (1u << PIN_CE);  }
+static inline void ce_high(void)  { GPIOA->PSOR = (1u << PIN_CE);  }
+
+/* --- Callback Nativo do Zephyr (Substitui o antigo porta_isr) --- */
+void nrf24_irq_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-	csn_low();
-	spi_transfer(NRF_SPI, CMD_W_REGISTER | reg);
-	spi_transfer(NRF_SPI, value);
-	csn_high();
+    k_sem_give(&nrf24_irq_sem); // Libera o semáforo para o loop principal
 }
 
-static uint8_t read_reg(uint8_t reg)
-{
-	uint8_t value;
-
-	csn_low();
-	spi_transfer(NRF_SPI, CMD_R_REGISTER | reg);
-	value = spi_transfer(NRF_SPI, CMD_NOP);
-	csn_high();
-
-	return value;
+static void write_reg(uint8_t reg, uint8_t value) {
+    csn_low();
+    spi_transfer(NRF_SPI, CMD_W_REGISTER | reg);
+    spi_transfer(NRF_SPI, value);
+    csn_high();
 }
 
-static void write_reg_buf(uint8_t reg, const uint8_t *buf, uint8_t len)
-{
-	uint8_t i;
-
-	csn_low();
-	spi_transfer(NRF_SPI, CMD_W_REGISTER | reg);
-	for(i = 0; i < len; i++)
-	{
-		spi_transfer(NRF_SPI, buf[i]);
-	}
-	csn_high();
+static uint8_t read_reg(uint8_t reg) {
+    uint8_t value;
+    csn_low();
+    spi_transfer(NRF_SPI, CMD_R_REGISTER | reg);
+    value = spi_transfer(NRF_SPI, CMD_NOP);
+    csn_high();
+    return value;
 }
 
-static void send_cmd(uint8_t cmd)
-{
-	csn_low();
-	spi_transfer(NRF_SPI, cmd);
-	csn_high();
+static void write_reg_buf(uint8_t reg, const uint8_t *buf, uint8_t len) {
+    csn_low();
+    spi_transfer(NRF_SPI, CMD_W_REGISTER | reg);
+    for(uint8_t i = 0; i < len; i++) {
+        spi_transfer(NRF_SPI, buf[i]);
+    }
+    csn_high();
 }
 
-static void pins_init(void)
-{
-	/* CSN e CE como saida. O clock do PORTE ja e ligado pelo spi_init(). */
-	SIM->SCGC5 |= SIM_SCGC5_PORTE_MASK;
-	PORTE->PCR[PIN_CSN] = PORT_PCR_MUX(1);
-	PORTE->PCR[PIN_CE]  = PORT_PCR_MUX(1);
-	GPIOE->PDDR |= (1u << PIN_CSN) | (1u << PIN_CE);
-
-	csn_high();
-	ce_low();
+static void send_cmd(uint8_t cmd) {
+    csn_low();
+    spi_transfer(NRF_SPI, cmd);
+    csn_high();
 }
 
-uint8_t nrf24_status(void)
-{
-	uint8_t status;
+static void pins_init(void) {
+    SIM->SCGC5 |= SIM_SCGC5_PORTA_MASK | SIM_SCGC5_PORTD_MASK | SIM_SCGC5_PORTE_MASK;
 
-	csn_low();
-	status = spi_transfer(NRF_SPI, CMD_NOP);
-	csn_high();
+    /* Apenas CE e CSN mantidos via bare-metal */
+    PORTA->PCR[PIN_CE] = PORT_PCR_MUX(1);
+    GPIOA->PDDR |= (1u << PIN_CE);
 
-	return status;
+    PORTD->PCR[PIN_CSN] = PORT_PCR_MUX(1);
+    GPIOD->PDDR |= (1u << PIN_CSN);
+
+    csn_high();
+    ce_low();
 }
 
-void nrf24_set_modo(nrf24_modo_t modo)
-{
-	if(modo == NRF24_MODO_RX)
-	{
-		write_reg(REG_CONFIG, CONFIG_BASE | CONFIG_PRIM_RX);
-		write_reg(REG_STATUS, STATUS_RX_DR | STATUS_TX_DS | STATUS_MAX_RT);
-		send_cmd(CMD_FLUSH_RX);
-		/* Em RX o CE fica alto o tempo todo: e ele que mantem o radio ouvindo. */
-		ce_high();
-	}
-	else
-	{
-		/* Em TX o CE so sobe no pulso que dispara cada pacote. */
-		ce_low();
-		write_reg(REG_CONFIG, CONFIG_BASE);
-	}
-
-	/* Datasheet: 130us para o radio assentar apos trocar de modo. */
-	k_busy_wait(150);
-
-	g_modo = modo;
+uint8_t nrf24_status(void) {
+    uint8_t status;
+    csn_low();
+    status = spi_transfer(NRF_SPI, CMD_NOP);
+    csn_high();
+    return status;
 }
 
-void nrf24_diag(void)
-{
-	uint8_t lido_03, lido_02;
-
-	pins_init();
-
-	/* Datasheet: 100ms de power-on reset antes de falar com o radio. */
-	k_msleep(100);
-
-	printk("\n--- diagnostico nRF24 (SCK=PTE2 MOSI=PTE1 MISO=PTE3 CSN=PTE4 CE=PTE5) ---\n");
-	printk("STATUS bruto = 0x%02X\n", nrf24_status());
-
-	/*
-	 * Escreve dois valores diferentes em SETUP_AW e le de volta. Se o MISO
-	 * estiver bom, a leitura acompanha o que foi escrito. Um valor fixo nas
-	 * duas leituras significa que nada esta chegando pelo MISO.
-	 */
-	write_reg(REG_SETUP_AW, 0x03);
-	lido_03 = read_reg(REG_SETUP_AW);
-	write_reg(REG_SETUP_AW, 0x02);
-	lido_02 = read_reg(REG_SETUP_AW);
-	write_reg(REG_SETUP_AW, 0x03);   /* volta para 5 bytes de endereco */
-
-	printk("SETUP_AW: escrevi 0x03 li 0x%02X | escrevi 0x02 li 0x%02X\n",
-	       lido_03, lido_02);
-
-	if(lido_03 == 0x03 && lido_02 == 0x02)
-	{
-		printk("=> SPI OK, radio respondendo.\n");
-	}
-	else if(lido_03 == 0xFF && lido_02 == 0xFF)
-	{
-		printk("=> MISO preso em 1. PTE3 solto, ou modulo sem 3.3V.\n");
-	}
-	else if(lido_03 == 0x00 && lido_02 == 0x00)
-	{
-		printk("=> MISO preso em 0. PTE3 no GND, CSN nao chega ao modulo,\n");
-		printk("   ou o modulo nao esta alimentado.\n");
-	}
-	else
-	{
-		printk("=> Resposta inconsistente. Fio ruim, mau contato ou ruido.\n");
-	}
-	printk("------------------------------------------------------------\n");
+void nrf24_set_modo(nrf24_modo_t modo) {
+    if(modo == NRF24_MODO_RX) {
+        write_reg(REG_CONFIG, CONFIG_BASE | CONFIG_PRIM_RX);
+        write_reg(REG_STATUS, STATUS_RX_DR | STATUS_TX_DS | STATUS_MAX_RT);
+        send_cmd(CMD_FLUSH_RX);
+        ce_high();
+    } else {
+        ce_low();
+        write_reg(REG_CONFIG, CONFIG_BASE);
+    }
+    k_busy_wait(150);
+    g_modo = modo;
 }
 
-bool nrf24_init(const uint8_t *address, uint8_t channel,
-                uint8_t payload_len, nrf24_modo_t modo)
-{
-	g_payload_len = payload_len;
+void nrf24_diag(void) {
+    uint8_t lido_03, lido_02;
+    pins_init();
+    k_msleep(100);
 
-	pins_init();
+    printk("\n--- Diagnóstico nRF24L01 (SCK=PTE2 MOSI=PTE1 MISO=PTE3 CSN=PTD5 CE=PTA13 IRQ=PTA16) ---\n");
+    printk("STATUS bruto = 0x%02X\n", nrf24_status());
 
-	/* Datasheet: 100ms de power-on reset antes de falar com o radio. */
-	k_msleep(100);
+    write_reg(REG_SETUP_AW, 0x03);
+    lido_03 = read_reg(REG_SETUP_AW);
+    write_reg(REG_SETUP_AW, 0x02);
+    lido_02 = read_reg(REG_SETUP_AW);
+    write_reg(REG_SETUP_AW, 0x03);
 
-	/*
-	 * Sanidade do SPI: SETUP_AW vale 0x03 apos reset. Se a leitura nao bater
-	 * com a escrita, o MISO nao esta chegando e nao adianta seguir.
-	 */
-	write_reg(REG_SETUP_AW, 0x03);
-	if(read_reg(REG_SETUP_AW) != 0x03)
-	{
-		return false;
-	}
-
-	/* Retransmissao: ARD = 1500us, ARC = 15 tentativas. */
-	write_reg(REG_SETUP_RETR, (5 << 4) | 15);
-
-	/* PA_LOW + 1 Mbps. A taxa precisa ser igual nas duas placas. */
-	write_reg(REG_RF_SETUP, 0x03);
-
-	/* Payload estatico. */
-	write_reg(REG_FEATURE, 0x00);
-	write_reg(REG_DYNPD, 0x00);
-
-	write_reg(REG_RF_CH, channel);
-
-	/*
-	 * Um unico pipe (0) para tudo. Em RX ele recebe; em TX o auto-ack volta
-	 * pelo pipe 0, que por isso precisa ter o mesmo endereco do TX_ADDR.
-	 * Usar so o pipe 0 deixa a troca de papel sem nenhuma mudanca de endereco.
-	 */
-	write_reg_buf(REG_TX_ADDR, address, NRF24_ADDR_WIDTH);
-	write_reg_buf(REG_RX_ADDR_P0, address, NRF24_ADDR_WIDTH);
-	write_reg(REG_RX_PW_P0, payload_len);
-	write_reg(REG_EN_AA, 0x01);      /* auto-ack no pipe 0 */
-	write_reg(REG_EN_RXADDR, 0x01);  /* pipe 0 habilitado */
-
-	send_cmd(CMD_FLUSH_TX);
-	send_cmd(CMD_FLUSH_RX);
-	write_reg(REG_STATUS, STATUS_RX_DR | STATUS_TX_DS | STATUS_MAX_RT);
-
-	nrf24_set_modo(modo);
-
-	/* Datasheet: 1.5ms de standby apos PWR_UP. */
-	k_msleep(2);
-
-	return true;
+    printk("SETUP_AW: escrevi 0x03 li 0x%02X | escrevi 0x02 li 0x%02X\n", lido_03, lido_02);
+    
+    if(lido_03 == 0x03 && lido_02 == 0x02) {
+        printk("=> SPI OK, módulo respondendo.\n");
+    } else {
+        printk("=> Falha de SPI. Verifique fiação ou alimentação.\n");
+    }
 }
 
-bool nrf24_send(const void *data, uint8_t len)
-{
-	const uint8_t *bytes = (const uint8_t *)data;
-	nrf24_modo_t modo_anterior = g_modo;
-	uint8_t status = 0;
-	uint8_t i;
-	uint32_t timeout;
+bool nrf24_init(const uint8_t *address, uint8_t channel, uint8_t payload_len, nrf24_modo_t modo) {
+    g_payload_len = payload_len;
+    pins_init();
+    k_msleep(100);
 
-	if(g_modo != NRF24_MODO_TX)
-	{
-		nrf24_set_modo(NRF24_MODO_TX);
-	}
+    /* INICIALIZAÇÃO DA INTERRUPÇÃO PELA API DO ZEPHYR (RESOLVE O ERRO DE MÚLTIPLOS REGISTROS) */
+    gpio_a_dev = DEVICE_DT_GET(DT_NODELABEL(gpioa)); // Captura a referência nativa da Porta A
+    
+    if (device_is_ready(gpio_a_dev)) {
+        // Configura o pino 16 como entrada, com resistor pull-up
+        gpio_pin_configure(gpio_a_dev, PIN_IRQ, GPIO_INPUT | GPIO_PULL_UP);
+        // Solicita interrupção na borda de descida (quando módulo puxa para LOW)
+        gpio_pin_interrupt_configure(gpio_a_dev, PIN_IRQ, GPIO_INT_EDGE_FALLING);
+        
+        // Registra nossa função para ser chamada pelo Zephyr
+        gpio_init_callback(&nrf24_irq_cb_data, nrf24_irq_callback, BIT(PIN_IRQ));
+        gpio_add_callback(gpio_a_dev, &nrf24_irq_cb_data);
+    } else {
+        printk("Erro: Controlador GPIOA não está pronto no Zephyr!\n");
+        return false;
+    }
 
-	write_reg(REG_STATUS, STATUS_TX_DS | STATUS_MAX_RT);
+    write_reg(REG_SETUP_AW, 0x03);
+    if(read_reg(REG_SETUP_AW) != 0x03) return false;
 
-	csn_low();
-	spi_transfer(NRF_SPI, CMD_W_TX_PAYLOAD);
-	for(i = 0; i < g_payload_len; i++)
-	{
-		/* Payload estatico: completa com zero se o dado for menor. */
-		spi_transfer(NRF_SPI, (i < len) ? bytes[i] : 0x00);
-	}
-	csn_high();
+    write_reg(REG_SETUP_RETR, (5 << 4) | 15);
+    write_reg(REG_RF_SETUP, 0x03); // 1 Mbps
+    write_reg(REG_RF_CH, channel);
+    
+    write_reg_buf(REG_TX_ADDR, address, NRF24_ADDR_WIDTH);
+    write_reg_buf(REG_RX_ADDR_P0, address, NRF24_ADDR_WIDTH);
+    write_reg(REG_RX_PW_P0, payload_len);
+    
+    write_reg(REG_EN_AA, 0x01);
+    write_reg(REG_EN_RXADDR, 0x01);
 
-	/* Pulso em CE dispara a transmissao. Minimo 10us. */
-	ce_high();
-	k_busy_wait(15);
-	ce_low();
-
-	/*
-	 * Pior caso: 15 retransmissoes x 1500us = 22.5ms. 50ms da folga.
-	 * Polling no STATUS em vez de usar o pino IRQ.
-	 */
-	for(timeout = 0; timeout < 500; timeout++)
-	{
-		status = nrf24_status();
-		if(status & (STATUS_TX_DS | STATUS_MAX_RT))
-		{
-			break;
-		}
-		k_busy_wait(100);
-	}
-
-	/*
-	 * Qualquer desfecho que nao seja TX_DS deixa o payload preso na FIFO de
-	 * transmissao - tanto MAX_RT quanto o estouro do timeout acima. Sem o
-	 * flush, tres falhas enchem a FIFO (ela guarda 3 pacotes) e o radio para
-	 * de transmitir de vez. E o classico "funciona uma vez e depois nada".
-	 */
-	if((status & STATUS_TX_DS) == 0)
-	{
-		send_cmd(CMD_FLUSH_TX);
-	}
-
-	write_reg(REG_STATUS, STATUS_RX_DR | STATUS_TX_DS | STATUS_MAX_RT);
-
-	if(modo_anterior != NRF24_MODO_TX)
-	{
-		nrf24_set_modo(modo_anterior);
-	}
-
-	return (status & STATUS_TX_DS) != 0;
+    send_cmd(CMD_FLUSH_TX);
+    send_cmd(CMD_FLUSH_RX);
+    write_reg(REG_STATUS, STATUS_RX_DR | STATUS_TX_DS | STATUS_MAX_RT);
+    
+    nrf24_set_modo(modo);
+    k_msleep(2);
+    return true;
 }
 
-bool nrf24_available(void)
-{
-	return (read_reg(REG_FIFO_STATUS) & FIFO_RX_EMPTY) == 0;
+bool nrf24_send(const void *data, uint8_t len) {
+    const uint8_t *bytes = (const uint8_t *)data;
+    nrf24_modo_t modo_anterior = g_modo;
+    uint8_t status;
+    
+    if(g_modo != NRF24_MODO_TX) nrf24_set_modo(NRF24_MODO_TX);
+    
+    write_reg(REG_STATUS, STATUS_TX_DS | STATUS_MAX_RT);
+    
+    csn_low();
+    spi_transfer(NRF_SPI, CMD_W_TX_PAYLOAD);
+    for(uint8_t i = 0; i < g_payload_len; i++) {
+        spi_transfer(NRF_SPI, (i < len) ? bytes[i] : 0x00);
+    }
+    csn_high();
+
+    ce_high();
+    k_busy_wait(15);
+    ce_low();
+
+    if(k_sem_take(&nrf24_irq_sem, K_MSEC(50)) != 0) {
+        status = nrf24_status();
+    } else {
+        status = nrf24_status();
+    }
+
+    if((status & STATUS_TX_DS) == 0) {
+        send_cmd(CMD_FLUSH_TX);
+    }
+    
+    write_reg(REG_STATUS, STATUS_RX_DR | STATUS_TX_DS | STATUS_MAX_RT);
+    
+    if(modo_anterior != NRF24_MODO_TX) nrf24_set_modo(modo_anterior);
+    
+    return (status & STATUS_TX_DS) != 0;
 }
 
-void nrf24_read(void *buf, uint8_t len)
-{
-	uint8_t *bytes = (uint8_t *)buf;
-	uint8_t i;
+bool nrf24_irq_occurred(void) {
+    return k_sem_take(&nrf24_irq_sem, K_NO_WAIT) == 0;
+}
 
-	csn_low();
-	spi_transfer(NRF_SPI, CMD_R_RX_PAYLOAD);
-	for(i = 0; i < g_payload_len; i++)
-	{
-		uint8_t b = spi_transfer(NRF_SPI, CMD_NOP);
-		if(i < len)
-		{
-			bytes[i] = b;
-		}
-	}
-	csn_high();
+bool nrf24_available(void) {
+    return (read_reg(REG_FIFO_STATUS) & FIFO_RX_EMPTY) == 0;
+}
 
-	write_reg(REG_STATUS, STATUS_RX_DR);
+void nrf24_read(void *buf, uint8_t len) {
+    uint8_t *bytes = (uint8_t *)buf;
+    
+    csn_low();
+    spi_transfer(NRF_SPI, CMD_R_RX_PAYLOAD);
+    for(uint8_t i = 0; i < g_payload_len; i++) {
+        uint8_t b = spi_transfer(NRF_SPI, CMD_NOP);
+        if(i < len) bytes[i] = b;
+    }
+    csn_high();
+    
+    write_reg(REG_STATUS, STATUS_RX_DR);
 }
