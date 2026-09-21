@@ -1,54 +1,40 @@
 #include <zephyr/kernel.h>
-#include <zephyr/device.h>
-#include <zephyr/drivers/gpio.h>
+#include "encoders.h"
+#include "motors.h"
 
-#define left_pin 4
+int main(void) {
+    printk("Iniciando Robô com Leitura de Encoders...\n");
 
-//static const struct device *gpio_c;
-static const struct device *gpio_d;
-static struct gpio_callback left_data;
+    motors_init();
+    encoders_init();
 
-void encoder_init(void) {
-    gpio_init();
-}
-
-// ISR - encoder da esquerda
-void left_isr(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
-{
-    int val = gpio_pin_get(dev, left_pin);
-    printk("esquerda: %d\n", val);
-}
-
-void gpio_init(void) {
-    // Encoder da direita (visão carrinho) GPIOC_9-> trocar para PTA12
-
-    // Encoder da esquerda (visão carrinho) GPIOD_4
-    gpio_d = DEVICE_DT_GET(DT_NODELABEL(gpiod));
-
-    if (gpio_d == NULL || !device_is_ready(gpio_d)) {
-        printk("ERRO FATAL: Dispositivo GPIOC não encontrado ou não está pronto!\n");
+    // Teste 1: Anda para frente e imprime distância percorrida
+    encoders_reset();
+    go();
+    
+    for (int i = 0; i < 21; i++) {
+        k_msleep(200);
+        printk("Distancia: %.2f cm\n",
+               (double)encoders_get_distance_cm());
     }
+    stop();
+    k_msleep(1000);
 
-    if (gpio_pin_configure(gpio_d, left_pin, GPIO_INPUT) < 0) { 
-        printk("Erro ao configurar PTC7\n");
-    }
+    // Teste 2: Executa Giro 90 graus para Esquerda
+    printk("Girando 90 graus para Esquerda...\n");
+    //turn_left_deg90();
+    left();
+    k_msleep(2000);
 
-    // Interrupção esquerda
-    gpio_pin_interrupt_configure(gpio_d, left_pin, GPIO_INT_EDGE_FALLING | GPIO_INT_EDGE_RISING);
-    gpio_init_callback(&left_data, left_isr, BIT(left_pin));
-    gpio_add_callback(gpio_d, &left_data);
+    // Teste 3: Executa Giro 90 graus para Direita
+    printk("Girando 90 graus para Direita...\n");
+    //turn_right_deg90();
+    right();
+    k_msleep(1000);
+    stop();
 
-}
-
-
-int main(void)
-{   
-    printk("Iniciando robô no modo simples...\n");
-
-    gpio_init();
-
-    // Lógica de desvio em loop infinito
-    for(;;) {
+    while (1) {
+        k_msleep(1000);
     }
 
     return 0;

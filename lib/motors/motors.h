@@ -11,29 +11,29 @@
 #include <pwm_z402.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
+#include "encoders.h"
 
 
 // Define o valor do registrador MOD do TPM para configurar o período do PWM
 #define TPM_MODULE_MOTORS 10000
+#define POT_STRAIGHT 60
 
 
-
+// Configuracao
 void motors_init(void);
-
 void gpio_init(void);
-
 void pwm_init(void);
-
 uint16_t value_pwm(int duty);
 
+// Acoes
 void go(void);
-
 void back(void);
-
 void left(void);
-
 void right(void);
-
 void stop(void);
+
+// Usando encoders
+void turn_left_deg90(void);
+void turn_right_deg90(void);
 
 #endif /* MOTORS_H_ */
