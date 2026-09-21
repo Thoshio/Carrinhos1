@@ -10,7 +10,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* --- BITS DE STATUS (Mova para cá para o main.c poder enxergar) --- */
+/* --- BITS DE STATUS --- */
 #define STATUS_RX_DR       (1 << 6)
 #define STATUS_TX_DS       (1 << 5)
 #define STATUS_MAX_RT      (1 << 4)
