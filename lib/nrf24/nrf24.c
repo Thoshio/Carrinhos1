@@ -33,10 +33,6 @@
 #define REG_RX_PW_P0       0x11
 #define REG_FIFO_STATUS    0x17
 
-#define STATUS_RX_DR       (1 << 6)
-#define STATUS_TX_DS       (1 << 5)
-#define STATUS_MAX_RT      (1 << 4)
-
 #define CONFIG_EN_CRC      (1 << 3)
 #define CONFIG_CRCO        (1 << 2)
 #define CONFIG_PWR_UP      (1 << 1)
