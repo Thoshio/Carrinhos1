@@ -1,0 +1,176 @@
+#include "motors.h"
+
+static const struct device *gpio_c;
+
+void motors_init(void){
+    gpio_init();
+    pwm_init();
+    printk("Motores configurados!\n");
+}
+
+void gpio_init(void){
+    /*Essa função deve configurar os pinos de direção 
+    da ponte H (IN1, IN2, IN3, IN4)*/
+
+    // Busca o dispositivo usando a macro moderna do Devicetree
+    gpio_c = DEVICE_DT_GET(DT_NODELABEL(gpioc));
+
+    // Verifica o dispositivo (antes de tentar configurar)
+    if (gpio_c == NULL || !device_is_ready(gpio_c)) {
+        printk("ERRO FATAL: Dispositivo GPIOC não encontrado ou não está pronto!\n");
+    }
+
+    printk("GPIOC encontrado com sucesso!\n");
+
+    // Agora é seguro configurar os pinos
+    if (gpio_pin_configure(gpio_c, 7, GPIO_OUTPUT_ACTIVE) < 0) { 
+        printk("Erro ao configurar PTC7\n");
+    }
+    gpio_pin_configure(gpio_c, 0, GPIO_OUTPUT_ACTIVE);
+    gpio_pin_configure(gpio_c, 3, GPIO_OUTPUT_ACTIVE);
+    gpio_pin_configure(gpio_c, 4, GPIO_OUTPUT_ACTIVE);
+
+    // Define os estados iniciais
+    gpio_pin_set(gpio_c, 7, 0);
+    gpio_pin_set(gpio_c, 0, 0);
+    gpio_pin_set(gpio_c, 3, 0);
+    gpio_pin_set(gpio_c, 4, 0);
+}
+
+void pwm_init(void){
+    /*Essa função deve configurar os pinos de habilitação da ponte H 
+    para definir a velocidade dos motores (ENA, ENB)*/
+
+    //Iniciando TPM0 para a PWM dos motores 
+    pwm_tpm_Init(TPM0, TPM_PLLFLL, TPM_MODULE_MOTORS, TPM_CLK, PS_4, EDGE_PWM);
+    pwm_tpm_Ch_Init(TPM0, 1, TPM_PWM_H, GPIOA, 4);
+    pwm_tpm_Ch_Init(TPM0, 2, TPM_PWM_H, GPIOA, 5);
+
+    pwm_tpm_CnV(TPM0, 1, value_pwm(0));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(0));
+}
+
+
+uint16_t value_pwm(int duty) {
+    // Função que define o valor em função do Duty Cycle que será passado para pwm_tpm_CnV 
+    uint32_t calculo = (uint32_t)TPM_MODULE_MOTORS * duty;
+    return (uint16_t)(calculo / 100);
+}
+
+void go(void){
+    // Ir para frente com POT_STRAIGHT% de força dos motores
+    pwm_tpm_CnV(TPM0, 1, value_pwm(POT_STRAIGHT));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(POT_STRAIGHT));
+
+    gpio_pin_set(gpio_c, 7, 1);
+    gpio_pin_set(gpio_c, 0, 0);
+    gpio_pin_set(gpio_c, 3, 1);
+    gpio_pin_set(gpio_c, 4, 0);
+}
+
+void back(void){
+    // Ir para trás com POT_STRAIGHT% de força dos motores
+    pwm_tpm_CnV(TPM0, 1, value_pwm(POT_STRAIGHT));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(POT_STRAIGHT));
+
+    gpio_pin_set(gpio_c, 7, 0);
+    gpio_pin_set(gpio_c, 0, 1);
+    gpio_pin_set(gpio_c, 3, 0);
+    gpio_pin_set(gpio_c, 4, 1);
+}
+
+void left(void){
+    stop();
+    k_msleep(80);
+    // Ir para esquerda com 100% de força dos motores
+    gpio_pin_set(gpio_c, 7, 0);
+    gpio_pin_set(gpio_c, 0, 1);
+    gpio_pin_set(gpio_c, 3, 1);
+    gpio_pin_set(gpio_c, 4, 0);
+
+    pwm_tpm_CnV(TPM0, 1, value_pwm(60));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(60));
+
+    k_msleep(4000);
+    stop();
+    k_msleep(10);
+}
+
+void right(void){
+    stop();
+    k_msleep(80);
+    // Ir para direita com 100% de força dos motores
+    gpio_pin_set(gpio_c, 7, 1);
+    gpio_pin_set(gpio_c, 0, 0);
+    gpio_pin_set(gpio_c, 3, 0);
+    gpio_pin_set(gpio_c, 4, 1);
+
+    pwm_tpm_CnV(TPM0, 1, value_pwm(60));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(60));
+
+    k_msleep(4000);
+    stop();
+    k_msleep(10);
+}
+
+void stop(void){
+    // Desligar motores
+    pwm_tpm_CnV(TPM0, 1, value_pwm(0));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(0));
+
+    gpio_pin_set(gpio_c, 7, 1);
+    gpio_pin_set(gpio_c, 0, 1);
+    gpio_pin_set(gpio_c, 3, 1);
+    gpio_pin_set(gpio_c, 4, 1);
+}
+
+
+
+// Encoders
+
+void turn_left_deg90(void) {
+    encoders_reset();
+    
+    // Liga motores
+    pwm_tpm_CnV(TPM0, 1, value_pwm(60));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(60));
+
+    gpio_pin_set(gpio_c, 7, 0);
+    gpio_pin_set(gpio_c, 0, 1);
+    gpio_pin_set(gpio_c, 3, 1);
+    gpio_pin_set(gpio_c, 4, 0);
+
+    while ((encoders_get_left_ticks() + encoders_get_right_ticks()) / 2 < TICKS_FOR_90_DEG) {
+        k_msleep(5);
+    }
+    stop();
+
+    // IMPRESSÃO DE DIAGNÓSTICO
+    printk("[DIAG] Giro Esquerda Finalizado -> Ticks E: %u | Ticks D: %u | Alvo Média: %u\n",
+           encoders_get_left_ticks(),
+           encoders_get_right_ticks(),
+           TICKS_FOR_90_DEG);
+}
+
+void turn_right_deg90(void) {
+    encoders_reset();
+    
+    // Motor Esquerdo para frente, Motor Direito para trás
+    pwm_tpm_CnV(TPM0, 1, value_pwm(60));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(60));
+
+    gpio_pin_set(gpio_c, 7, 1);
+    gpio_pin_set(gpio_c, 0, 0);
+    gpio_pin_set(gpio_c, 3, 0);
+    gpio_pin_set(gpio_c, 4, 1);
+
+    while ((encoders_get_left_ticks() + encoders_get_right_ticks()) / 2 < TICKS_FOR_90_DEG) {
+        k_msleep(5);
+    }
+    stop();
+
+    printk("[DIAG] Giro Esquerda Finalizado -> Ticks E: %u | Ticks D: %u | Alvo Média: %u\n",
+           encoders_get_left_ticks(),
+           encoders_get_right_ticks(),
+           TICKS_FOR_90_DEG);
+}
