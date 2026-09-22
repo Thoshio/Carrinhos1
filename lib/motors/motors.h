@@ -32,8 +32,4 @@ void left(void);
 void right(void);
 void stop(void);
 
-// Usando encoders
-void turn_left_deg90(void);
-void turn_right_deg90(void);
-
 #endif /* MOTORS_H_ */
