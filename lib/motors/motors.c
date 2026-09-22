@@ -123,3 +123,42 @@ void stop(void){
     gpio_pin_set(gpio_c, 3, 1);
     gpio_pin_set(gpio_c, 4, 1);
 }
+
+void turn_left_deg90(void) {
+    stop();
+    k_msleep(50);
+    encoders_reset(); // Mantém o reset para não somar distância falsa durante a curva
+
+    // Roda direita avança, esquerda recua (pivô à esquerda)
+    gpio_pin_set(gpio_c, 7, 0);
+    gpio_pin_set(gpio_c, 0, 1);
+    gpio_pin_set(gpio_c, 3, 1);
+    gpio_pin_set(gpio_c, 4, 0);
+    pwm_tpm_CnV(TPM0, 1, value_pwm(60));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(60));
+
+    // Substitui a checagem dos encoders por um tempo fixo calibrado
+    k_msleep(TEMPO_CURVA_90_MS);
+
+    stop();
+    k_msleep(50);
+}
+
+void turn_right_deg90(void) {
+    stop();
+    k_msleep(50);
+    encoders_reset();
+
+    // Roda esquerda avança, direita recua (pivô à direita)
+    gpio_pin_set(gpio_c, 7, 1);
+    gpio_pin_set(gpio_c, 0, 0);
+    gpio_pin_set(gpio_c, 3, 0);
+    gpio_pin_set(gpio_c, 4, 1);
+    pwm_tpm_CnV(TPM0, 1, value_pwm(60));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(60));
+
+    k_msleep(TEMPO_CURVA_90_MS);
+
+    stop();
+    k_msleep(50);
+}
