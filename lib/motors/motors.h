@@ -17,7 +17,7 @@
 // Define o valor do registrador MOD do TPM para configurar o período do PWM
 #define TPM_MODULE_MOTORS 10000
 #define POT_STRAIGHT 60
-#define TEMPO_CURVA_90_MS 1200
+#define TEMPO_CURVA_90_MS 3500
 
 // Configuracao
 void motors_init(void);
