@@ -59,8 +59,8 @@ uint16_t value_pwm(int duty) {
 
 void go(void){
     // Ir para frente com POT_STRAIGHT% de força dos motores
-    pwm_tpm_CnV(TPM0, 1, value_pwm(POT_STRAIGHT));
-    pwm_tpm_CnV(TPM0, 2, value_pwm(POT_STRAIGHT));
+    pwm_tpm_CnV(TPM0, 1, value_pwm(POT_STRAIGHT_R));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(POT_STRAIGHT_L));
 
     gpio_pin_set(gpio_c, 7, 1);
     gpio_pin_set(gpio_c, 0, 0);
@@ -70,8 +70,8 @@ void go(void){
 
 void back(void){
     // Ir para trás com POT_STRAIGHT% de força dos motores
-    pwm_tpm_CnV(TPM0, 1, value_pwm(POT_STRAIGHT));
-    pwm_tpm_CnV(TPM0, 2, value_pwm(POT_STRAIGHT));
+    pwm_tpm_CnV(TPM0, 1, value_pwm(POT_STRAIGHT_R));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(POT_STRAIGHT_L));
 
     gpio_pin_set(gpio_c, 7, 0);
     gpio_pin_set(gpio_c, 0, 1);
@@ -135,10 +135,10 @@ void turn_left_deg90(void) {
     gpio_pin_set(gpio_c, 3, 1);
     gpio_pin_set(gpio_c, 4, 0);
     pwm_tpm_CnV(TPM0, 1, value_pwm(60));
-    pwm_tpm_CnV(TPM0, 2, value_pwm(60));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(61));
 
     // Substitui a checagem dos encoders por um tempo fixo calibrado
-    k_msleep(TEMPO_CURVA_90_MS);
+    k_msleep(3500);
 
     stop();
     k_msleep(50);
@@ -155,9 +155,9 @@ void turn_right_deg90(void) {
     gpio_pin_set(gpio_c, 3, 0);
     gpio_pin_set(gpio_c, 4, 1);
     pwm_tpm_CnV(TPM0, 1, value_pwm(60));
-    pwm_tpm_CnV(TPM0, 2, value_pwm(60));
+    pwm_tpm_CnV(TPM0, 2, value_pwm(61));
 
-    k_msleep(TEMPO_CURVA_90_MS);
+    k_msleep(3490);
 
     stop();
     k_msleep(50);

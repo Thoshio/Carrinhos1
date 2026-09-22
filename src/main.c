@@ -92,7 +92,7 @@ int main(void) {
             int dist_frente = distance_cm();
 
             // Caminho livre
-            if (dist_frente > 15) {
+            if (dist_frente > 10) {
                 go();
                 k_msleep(50); // Move um pouco e refaz a leitura
             } 
@@ -111,12 +111,13 @@ int main(void) {
 
                 // Analisa a Direita (Gira 180 graus a partir da visão esquerda)
                 turn_right_deg90();
+                k_msleep(200);
                 turn_right_deg90();
                 k_msleep(200);
                 int dist_dir = distance_cm();
 
                 // Tomada de Decisão Lógica
-                if (dist_esq > dist_dir && dist_esq > 15) {
+                if (dist_esq > dist_dir && dist_esq > 10) {
                     printk("Direcao escolhida: Esquerda.\n");
                     // O carro está olhando para a direita. Precisa girar 180 para ir à esquerda.
                     turn_left_deg90();
