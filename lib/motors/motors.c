@@ -138,7 +138,7 @@ void turn_left_deg90(void) {
     pwm_tpm_CnV(TPM0, 2, value_pwm(61));
 
     // Substitui a checagem dos encoders por um tempo fixo calibrado
-    k_msleep(3500);
+    k_msleep(TEMPO_CURVA_R);
 
     stop();
     k_msleep(50);
@@ -157,7 +157,7 @@ void turn_right_deg90(void) {
     pwm_tpm_CnV(TPM0, 1, value_pwm(60));
     pwm_tpm_CnV(TPM0, 2, value_pwm(61));
 
-    k_msleep(3490);
+    k_msleep(TEMPO_CURVA_L);
 
     stop();
     k_msleep(50);

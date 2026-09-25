@@ -92,7 +92,7 @@ int main(void) {
             int dist_frente = distance_cm();
 
             // Caminho livre
-            if (dist_frente > 10) {
+            if (dist_frente > 8) {
                 go();
                 k_msleep(50); // Move um pouco e refaz a leitura
             } 

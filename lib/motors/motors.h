@@ -18,7 +18,8 @@
 #define TPM_MODULE_MOTORS 10000
 #define POT_STRAIGHT_R 91
 #define POT_STRAIGHT_L 95
-#define TEMPO_CURVA_90_MS 3400
+#define TEMPO_CURVA_R 3490
+#define TEMPO_CURVA_L 3480
 
 // Configuracao
 void motors_init(void);
