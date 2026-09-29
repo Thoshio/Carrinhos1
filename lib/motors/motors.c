@@ -91,7 +91,7 @@ void left(void){
     pwm_tpm_CnV(TPM0, 1, value_pwm(60));
     pwm_tpm_CnV(TPM0, 2, value_pwm(60));
 
-    k_msleep(4000);
+    k_msleep(4600);
     stop();
     k_msleep(10);
 }
@@ -108,7 +108,7 @@ void right(void){
     pwm_tpm_CnV(TPM0, 1, value_pwm(60));
     pwm_tpm_CnV(TPM0, 2, value_pwm(60));
 
-    k_msleep(4000);
+    k_msleep(4600);
     stop();
     k_msleep(10);
 }
@@ -140,16 +140,11 @@ void turn_left_deg90(void) {
     gpio_pin_set(gpio_c, 3, 1);
     gpio_pin_set(gpio_c, 4, 0);
 
-    while ((encoders_get_left_ticks() + encoders_get_right_ticks()) / 2 < TICKS_FOR_90_DEG) {
+    // Mantem portas lógicas no sentido de giro para esquerda até atingir a constante definida para 90 graus
+    while ((encoders_get_left_ticks()) / 2 < TICKS_FOR_90_DEG) {
         k_msleep(5);
     }
     stop();
-
-    // IMPRESSÃO DE DIAGNÓSTICO
-    printk("[DIAG] Giro Esquerda Finalizado -> Ticks E: %u | Ticks D: %u | Alvo Média: %u\n",
-           encoders_get_left_ticks(),
-           encoders_get_right_ticks(),
-           TICKS_FOR_90_DEG);
 }
 
 void turn_right_deg90(void) {
@@ -164,13 +159,10 @@ void turn_right_deg90(void) {
     gpio_pin_set(gpio_c, 3, 0);
     gpio_pin_set(gpio_c, 4, 1);
 
-    while ((encoders_get_left_ticks() + encoders_get_right_ticks()) / 2 < TICKS_FOR_90_DEG) {
+    // Mantem portas lógicas no sentido de giro para direita até atingir a constante definida para 90 graus
+    while ((encoders_get_left_ticks()) / 2 < TICKS_FOR_90_DEG) {
         k_msleep(5);
     }
-    stop();
 
-    printk("[DIAG] Giro Esquerda Finalizado -> Ticks E: %u | Ticks D: %u | Alvo Média: %u\n",
-           encoders_get_left_ticks(),
-           encoders_get_right_ticks(),
-           TICKS_FOR_90_DEG);
+    stop();
 }

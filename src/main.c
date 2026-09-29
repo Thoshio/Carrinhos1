@@ -14,22 +14,20 @@ int main(void) {
     
     for (int i = 0; i < 21; i++) {
         k_msleep(200);
-        printk("Distancia: %.2f cm\n",
-               (double)encoders_get_distance_cm());
+        printk("Distancia: %.2f cm\n",(double)encoders_get_distance_cm());
     }
     stop();
     k_msleep(1000);
 
     // Teste 2: Executa Giro 90 graus para Esquerda
     printk("Girando 90 graus para Esquerda...\n");
-    //turn_left_deg90();
+    turn_left_deg90();
     left();
     k_msleep(2000);
 
     // Teste 3: Executa Giro 90 graus para Direita
     printk("Girando 90 graus para Direita...\n");
-    //turn_right_deg90();
-    right();
+    turn_right_deg90();
     k_msleep(1000);
     stop();
 
