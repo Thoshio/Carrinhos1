@@ -38,7 +38,7 @@ int main(void) {
 
     while (1) {
         // ==========================================
-        // 1. PROCESSAMENTO DE COMANDOS WIRELESS
+        // PROCESSAMENTO DE COMANDOS WIRELESS
         // ==========================================
         if (nrf24_irq_occurred()) {
             uint8_t r_status = nrf24_status();
@@ -86,7 +86,7 @@ int main(void) {
         }
 
         // ==========================================
-        // 2. NAVEGAÇÃO E DESVIO DE OBSTÁCULOS
+        // NAVEGAÇÃO E DESVIO DE OBSTÁCULOS
         // ==========================================
         if (estado == RUN) {
             int dist_frente = distance_cm();
@@ -116,7 +116,7 @@ int main(void) {
                 k_msleep(200);
                 int dist_dir = distance_cm();
 
-                // Tomada de Decisão Lógica
+                // Tomada de Decisão Lógica (segue pelo lado com maior distância)
                 if (dist_esq > dist_dir && dist_esq > 10) {
                     printk("Direcao escolhida: Esquerda.\n");
                     // O carro está olhando para a direita. Precisa girar 180 para ir à esquerda.

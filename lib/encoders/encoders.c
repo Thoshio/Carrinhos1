@@ -12,10 +12,12 @@ static struct gpio_callback right_cb;
 static volatile uint32_t ticks_left = 0;
 static volatile uint32_t ticks_right = 0;
 
+// interrupção que adiciona tick da roda esquerda
 static void left_isr(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
     ticks_left++;
 }
 
+// interrupção que adiciona tick da roda direita
 static void right_isr(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
     ticks_right++;
 }
@@ -44,19 +46,23 @@ void encoders_init(void) {
     printk("Encoders inicializados com sucesso.\n");
 }
 
+// resetando contagem de ticks dos encoders do dois lados
 void encoders_reset(void) {
     ticks_left = 0;
     ticks_right = 0;
 }
 
+// acessando ticks contados pelo encoder da esquerda
 uint32_t encoders_get_left_ticks(void) { 
     return ticks_left; 
 }
 
+// acessando ticks contados pelo encoder da esquerda
 uint32_t encoders_get_right_ticks(void) { 
     return ticks_right; 
 }
 
+// transformamos ticks em cm através das constante CM_PER_TICK
 float encoders_get_distance_cm(void) {
     uint32_t avg_ticks = (ticks_left);
     return avg_ticks * CM_PER_TICK;

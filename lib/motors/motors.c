@@ -124,12 +124,12 @@ void stop(void){
     gpio_pin_set(gpio_c, 4, 1);
 }
 
-void turn_left_deg90(void) {
+void turn_right_deg90(void) {
     stop();
     k_msleep(50);
     encoders_reset(); // Mantém o reset para não somar distância falsa durante a curva
 
-    // Roda direita avança, esquerda recua (pivô à esquerda)
+    // Roda esquerda avança, direita recua
     gpio_pin_set(gpio_c, 7, 0);
     gpio_pin_set(gpio_c, 0, 1);
     gpio_pin_set(gpio_c, 3, 1);
@@ -144,12 +144,12 @@ void turn_left_deg90(void) {
     k_msleep(50);
 }
 
-void turn_right_deg90(void) {
+void turn_left_deg90(void) {
     stop();
     k_msleep(50);
     encoders_reset();
 
-    // Roda esquerda avança, direita recua (pivô à direita)
+    // Roda direita avança, esquerda recua
     gpio_pin_set(gpio_c, 7, 1);
     gpio_pin_set(gpio_c, 0, 0);
     gpio_pin_set(gpio_c, 3, 0);
